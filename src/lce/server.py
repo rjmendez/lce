@@ -2,9 +2,9 @@
 lce.server — MCP JSON-RPC 2.0 server.
 
 LightCraft connects here as a client and discovers tools:
-  enhance   — full auto-pipeline (triage → route → process)
+  enhance   — full auto-pipeline (triage -> route -> process)
   sharpen   — lens-blur/motion-blur sharpening
-  upscale   — 2× or 4× Gigapixel-quality upscaling
+  upscale   — 2x or 4x Gigapixel-quality upscaling
   segment   — subject mask (SAM)
   triage    — degradation classification (DA-CLIP)
   health    — server status + loaded model list
@@ -61,7 +61,7 @@ def _tools() -> list[dict]:
                     "path": {"type": "string"},
                     "strength": {
                         "type": "number",
-                        "description": "Blur strength 0–1 (default: auto via DA-CLIP)",
+                        "description": "Blur strength 0-1 (default: auto via DA-CLIP)",
                         "default": -1,
                     },
                 },
@@ -69,7 +69,7 @@ def _tools() -> list[dict]:
         },
         {
             "name": "upscale",
-            "description": "2× or 4× upscaling.",
+            "description": "2x or 4x upscaling.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -93,7 +93,7 @@ def _tools() -> list[dict]:
         {
             "name": "enhance",
             "description": (
-                "Full auto-enhancement: triage → select model → process. "
+                "Full auto-enhancement: triage -> select model -> process. "
                 "Best-quality single-call operation for batch workflows."
             ),
             "inputSchema": {
@@ -305,3 +305,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
