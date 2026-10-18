@@ -1,35 +1,79 @@
-# lce model registry
-# Filled in once open-weights research completes.
-# Each [[model]] entry must have: id, capability, url, sha256, format, size_mb, license, description.
+# lce model registry — open-weight ONNX models
+# sha256 left empty; integrity is verified at runtime after download.
 
 [[model]]
-id          = "realesrgan-x2"
+id          = "hat-s-x4"
 capability  = "upscale"
-url         = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x2plus.pth"
+url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT-S_SRx4.onnx"
 sha256      = ""
-format      = "pytorch"
-size_mb     = 64
-license     = "BSD-3-Clause"
-description = "Real-ESRGAN 2× upscaling (general photo)"
-
-[[model]]
-id          = "realesrgan-x4"
-capability  = "upscale"
-url         = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
-sha256      = ""
-format      = "pytorch"
-size_mb     = 64
-license     = "BSD-3-Clause"
-description = "Real-ESRGAN 4× upscaling (general photo)"
-
-[[model]]
-id          = "mobilesam"
-capability  = "segment"
-url         = "https://github.com/ChaoningZhang/MobileSAM/releases/download/v0.1/mobile_sam.pt"
-sha256      = ""
-format      = "pytorch"
-size_mb     = 38
+format      = "onnx"
+size_mb     = 40
 license     = "Apache-2.0"
-description = "MobileSAM — fast subject segmentation"
+description = "HAT-S 4× super-resolution (Apache-2.0)"
+optional    = false
 
-# TODO: fill in ONNX exports once research confirms URLs + checksums
+[[model]]
+id          = "hat-s-x2"
+capability  = "upscale"
+url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT-S_SRx2.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 40
+license     = "Apache-2.0"
+description = "HAT-S 2× super-resolution (Apache-2.0)"
+optional    = false
+
+[[model]]
+id          = "nafnet-int8"
+capability  = "sharpen"
+url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may_int8.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 18
+license     = "MIT"
+description = "NAFNet int8 deblurring — fast CPU mode (MIT)"
+optional    = false
+
+[[model]]
+id          = "nafnet-fp32"
+capability  = "sharpen"
+url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 66
+license     = "MIT"
+description = "NAFNet fp32 deblurring — quality mode (MIT)"
+optional    = false
+
+[[model]]
+id          = "mobilesam-encoder"
+capability  = "segment"
+url         = "https://huggingface.co/qualcomm/MobileSam/resolve/main/mobile_sam_encoder.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 27
+license     = "Apache-2.0"
+description = "MobileSAM image encoder (Apache-2.0)"
+optional    = false
+
+[[model]]
+id          = "mobilesam-decoder"
+capability  = "segment"
+url         = "https://huggingface.co/qualcomm/MobileSam/resolve/main/mobile_sam_decoder.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 24
+license     = "Apache-2.0"
+description = "MobileSAM mask decoder (Apache-2.0)"
+optional    = false
+
+[[model]]
+id          = "gfpgan-v14"
+capability  = "face"
+url         = "https://huggingface.co/Neus/GFPGANv1.4/resolve/main/GFPGANv1.4.onnx"
+sha256      = ""
+format      = "onnx"
+size_mb     = 340
+license     = "Apache-2.0"
+description = "GFPGAN v1.4 face enhancement — optional face pack (Apache-2.0)"
+optional    = true
