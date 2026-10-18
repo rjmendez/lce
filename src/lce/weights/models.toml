@@ -1,0 +1,35 @@
+# lce model registry
+# Filled in once open-weights research completes.
+# Each [[model]] entry must have: id, capability, url, sha256, format, size_mb, license, description.
+
+[[model]]
+id          = "realesrgan-x2"
+capability  = "upscale"
+url         = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x2plus.pth"
+sha256      = ""
+format      = "pytorch"
+size_mb     = 64
+license     = "BSD-3-Clause"
+description = "Real-ESRGAN 2× upscaling (general photo)"
+
+[[model]]
+id          = "realesrgan-x4"
+capability  = "upscale"
+url         = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+sha256      = ""
+format      = "pytorch"
+size_mb     = 64
+license     = "BSD-3-Clause"
+description = "Real-ESRGAN 4× upscaling (general photo)"
+
+[[model]]
+id          = "mobilesam"
+capability  = "segment"
+url         = "https://github.com/ChaoningZhang/MobileSAM/releases/download/v0.1/mobile_sam.pt"
+sha256      = ""
+format      = "pytorch"
+size_mb     = 38
+license     = "Apache-2.0"
+description = "MobileSAM — fast subject segmentation"
+
+# TODO: fill in ONNX exports once research confirms URLs + checksums
