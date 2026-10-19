@@ -187,6 +187,11 @@ class TestCudaDeviceId:
         with pytest.raises(ValueError, match="LCE_CUDA_DEVICE must be >= 0, got -2"):
             engine._cuda_device_id({"LCE_CUDA_DEVICE": "-2"})
 
+    def test_the_boundary_is_zero_inclusive_and_minus_one_exclusive(self):
+        assert engine._cuda_device_id({"LCE_CUDA_DEVICE": "0"}) == 0          # card 0 is a legal choice, not a default only
+        with pytest.raises(ValueError, match="LCE_CUDA_DEVICE must be >= 0, got -1"):
+            engine._cuda_device_id({"LCE_CUDA_DEVICE": "-1"})
+
 
 class TestHealthSurface:
     def test_health_tool_reports_onnx_degradation_counts(self, monkeypatch):
