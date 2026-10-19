@@ -163,6 +163,8 @@ class LceHandler:
 
         if name == "health":
             import openvino as ov
+
+            from lce.engine import degraded_counts
             devs = ov.Core().available_devices
             loaded = list(self._cache._lru.keys())
             return {"content": [{"type": "text", "text": json.dumps({
@@ -170,6 +172,7 @@ class LceHandler:
                 "device": self._device,
                 "openvino_devices": devs,
                 "loaded_models": [Path(p).stem for p in loaded],
+                "onnx_degraded": degraded_counts(),
             })}]}
 
         img = _load_arg(args)

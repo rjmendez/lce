@@ -9,31 +9,117 @@ Intentionally model-agnostic: no Topaz-specific logic here.
 The models/ package maps capabilities (upscale, sharpen, ...) to specific
 open-weight files and feeds.
 
-GPU configuration (RTX 2080 Ti = GPU.0, RTX 4070 Ti = GPU.1):
-  ONNX models  -> CUDAExecutionProvider device_id=1 (4070 Ti)
-  OpenVINO IR  -> GPU.1 via OpenCL (fallback; prefer ONNX/CUDA for NVIDIA)
+GPU configuration:
+  ONNX models  -> CUDAExecutionProvider on the device named by LCE_CUDA_DEVICE (default 0).
+                  CUDA device order is NOT nvidia-smi PCI order; check the index against the
+                  card you mean (torch.cuda.get_device_name / cupy) before setting it.
+                  A session that does not end up on CUDA is reported (WARNING, counter in
+                  degraded_counts(), shown by the server's health tool); LCE_REQUIRE_CUDA=1
+                  turns that into an error.
+  OpenVINO IR  -> the ``device`` given to ModelCache (CPU default).
 """
 from __future__ import annotations
 
+import logging
 import os
-import shutil
-import tempfile
-from collections import OrderedDict
+import time
+from collections import Counter, OrderedDict
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 
+log = logging.getLogger("lce.engine")
 
-def _ensure_cudnn() -> None:
-    """Add the nvidia-cudnn-cu12 DLL directory so ORT can find cudnn64_9.dll."""
+CUDA = "CUDAExecutionProvider"
+CPU = "CPUExecutionProvider"
+CUDA_DEVICE_ENV = "LCE_CUDA_DEVICE"
+REQUIRE_CUDA_ENV = "LCE_REQUIRE_CUDA"
+WARN_INTERVAL_S = 60.0
+
+_COUNTS: Counter = Counter()
+_LAST_WARN: dict = {}
+
+
+def degraded_counts() -> dict:
+    """Degraded ONNX outcomes in this process, keyed ``"<reason>"`` (shown by the server health tool)."""
+    return dict(_COUNTS)
+
+
+def _report(reason: str, message: str, clock=time.monotonic) -> None:
+    """Count every degraded outcome; WARNING at most once per WARN_INTERVAL_S per reason."""
+    _COUNTS[reason] += 1
+    now = clock()
+    last = _LAST_WARN.get(reason)
+    if last is None or now - last >= WARN_INTERVAL_S:
+        _LAST_WARN[reason] = now
+        log.warning("%s (occurrence %d of this kind in this process)", message, _COUNTS[reason])
+
+
+def _cuda_device_id(environ=None) -> int:
+    """CUDA device index from LCE_CUDA_DEVICE (default 0, ORT's own default)."""
+    environ = os.environ if environ is None else environ
+    raw = environ.get(CUDA_DEVICE_ENV)
+    if raw in (None, ""):
+        return 0
     try:
-        import nvidia.cudnn as _cudnn
-        cudnn_bin = Path(list(_cudnn.__path__)[0]) / "bin"
-        if cudnn_bin.is_dir():
-            os.add_dll_directory(str(cudnn_bin))
-    except Exception:
-        pass  # cuDNN not installed via pip; rely on system PATH
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{CUDA_DEVICE_ENV} must be an integer CUDA device index, got {raw!r}") from None
+    if value < 0:
+        raise ValueError(f"{CUDA_DEVICE_ENV} must be >= 0, got {value}")
+    return value
+
+
+def _open_onnx(ort, model_path, *, device_id=None, require_cuda=None, retries=2, backoff_s=0.5,
+               sleep=time.sleep, clock=time.monotonic):
+    """Create an ONNX Runtime session on CUDA when possible and say so when it is not.
+
+    ort.preload_dlls() loads the CUDA/cuDNN DLLs from the nvidia-* wheels in the order ORT needs; a bare
+    os.add_dll_directory() made session creation abort the process ("Cannot load symbol cudnnCreate").
+    session.get_providers() is checked afterwards, because ORT falls back to CPU without raising.
+    Session-creation errors are retried with exponential backoff and then propagate.
+    """
+    if device_id is None:
+        device_id = _cuda_device_id()
+    if require_cuda is None:
+        require_cuda = os.environ.get(REQUIRE_CUDA_ENV, "") not in ("", "0")
+    available = list(ort.get_available_providers())
+    if CUDA in available:
+        if hasattr(ort, "preload_dlls"):
+            try:
+                ort.preload_dlls()
+            except Exception as e:  # the provider check below decides whether this mattered
+                _report("preload-dlls-failed", f"lce: ort.preload_dlls() raised {type(e).__name__}: {str(e)[:200]}", clock)
+        providers = [(CUDA, {"device_id": device_id}), CPU]
+    else:
+        _report("cuda-unavailable",
+                f"lce: this onnxruntime offers only {available}; install onnxruntime-gpu to use the GPU", clock)
+        providers = [CPU]
+
+    session = None
+    for attempt in range(retries + 1):
+        try:
+            session = ort.InferenceSession(str(model_path), providers=providers)
+            break
+        except Exception as e:
+            if attempt >= retries:
+                raise
+            _report("session-create-retry",
+                    f"lce: InferenceSession creation failed ({type(e).__name__}: {str(e)[:200]}); "
+                    f"retry {attempt + 1} of {retries}", clock)
+            sleep(backoff_s * (2 ** attempt))
+
+    got = list(session.get_providers())
+    if not got or got[0] != CUDA:
+        msg = (f"lce: CUDA was requested (device_id={device_id}) but {Path(model_path).name} runs on {got}; "
+               f"expect ~10x slower inference (cuDNN/CUDA DLLs missing or CPU-only onnxruntime)")
+        _report("cuda-not-obtained", msg, clock)
+        if require_cuda:
+            raise RuntimeError(msg)
+    else:
+        log.info("lce: %s runs on %s (device_id=%d)", Path(model_path).name, got, device_id)
+    return session
 
 # ---------------------------------------------------------------------------
 # Model cache
@@ -50,15 +136,10 @@ class ModelCache:
 
     def __init__(self, max_models: int = 4, device: str = "CPU"):
         """
-        device applies to OpenVINO IR models only.
-        ONNX models always use CUDAExecutionProvider (RTX 4070 Ti, device_id=1)
-        when available, regardless of this setting.
-        OpenVINO GPU plugin via OpenCL is slower than CPU on NVIDIA hardware.
-        """
-        """
-        device: OpenVINO device string — "CPU", "GPU", "AUTO".
-                ONNX Runtime always uses CPU/DirectML depending on
-                installed execution providers.
+        device: OpenVINO device string - "CPU", "GPU", "AUTO"; applies to OpenVINO IR models only.
+        ONNX models use CUDAExecutionProvider on LCE_CUDA_DEVICE (default 0) regardless of this
+        setting, and report it when they end up on CPU. OpenVINO GPU via OpenCL is slower than
+        CPU on NVIDIA hardware.
         """
         self._max = max_models
         self._device = device
@@ -88,25 +169,13 @@ class ModelCache:
 def _compile(model_path: Path, device: str):
     """Compile a model file to an inference-ready object.
 
-    For ONNX: prefers CUDAExecutionProvider on device_id=1 (RTX 4070 Ti).
-    cuDNN must be on PATH; if unavailable falls back to CPU.
-    For OpenVINO IR: uses the passed device string (default GPU.1 = RTX 4070 Ti
-    via OpenCL — use CUDA/TRT path via ONNX for best NVIDIA perf).
+    For ONNX: CUDAExecutionProvider on LCE_CUDA_DEVICE (see _open_onnx); a CPU result is reported.
+    For OpenVINO IR: uses the passed device string.
     """
     model_path = Path(model_path)
     if model_path.suffix == ".onnx":
         import onnxruntime as ort
-        # Ensure cuDNN DLL is discoverable (installed via nvidia-cudnn-cu12)
-        _ensure_cudnn()
-        available = ort.get_available_providers()
-        if "CUDAExecutionProvider" in available:
-            providers = [
-                ("CUDAExecutionProvider", {"device_id": 1}),  # RTX 4070 Ti
-                "CPUExecutionProvider",
-            ]
-        else:
-            providers = ["CPUExecutionProvider"]
-        return ort.InferenceSession(str(model_path), providers=providers)
+        return _open_onnx(ort, model_path)
     else:
         import openvino as ov
         core = ov.Core()
