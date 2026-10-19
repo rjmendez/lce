@@ -6,11 +6,16 @@ instances in memory (LRU), and runs large images through any model in
 overlapping tiles with cosine-blended seams.
 
 Intentionally model-agnostic: no Topaz-specific logic here.
-The models/ package maps capabilities (upscale, sharpen, …) to specific
+The models/ package maps capabilities (upscale, sharpen, ...) to specific
 open-weight files and feeds.
+
+GPU configuration (RTX 2080 Ti = GPU.0, RTX 4070 Ti = GPU.1):
+  ONNX models  -> CUDAExecutionProvider device_id=1 (4070 Ti)
+  OpenVINO IR  -> GPU.1 via OpenCL (fallback; prefer ONNX/CUDA for NVIDIA)
 """
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from collections import OrderedDict
@@ -18,6 +23,17 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+
+def _ensure_cudnn() -> None:
+    """Add the nvidia-cudnn-cu12 DLL directory so ORT can find cudnn64_9.dll."""
+    try:
+        import nvidia.cudnn as _cudnn
+        cudnn_bin = Path(list(_cudnn.__path__)[0]) / "bin"
+        if cudnn_bin.is_dir():
+            os.add_dll_directory(str(cudnn_bin))
+    except Exception:
+        pass  # cuDNN not installed via pip; rely on system PATH
 
 # ---------------------------------------------------------------------------
 # Model cache
@@ -32,7 +48,7 @@ class ModelCache:
       .onnx →  ONNX Runtime
     """
 
-    def __init__(self, max_models: int = 4, device: str = "AUTO"):
+    def __init__(self, max_models: int = 4, device: str = "GPU.1"):
         """
         device: OpenVINO device string — "CPU", "GPU", "AUTO".
                 ONNX Runtime always uses CPU/DirectML depending on
@@ -64,17 +80,26 @@ class ModelCache:
 
 
 def _compile(model_path: Path, device: str):
-    """Compile a model file to an inference-ready object."""
+    """Compile a model file to an inference-ready object.
+
+    For ONNX: prefers CUDAExecutionProvider on device_id=1 (RTX 4070 Ti).
+    cuDNN must be on PATH; if unavailable falls back to CPU.
+    For OpenVINO IR: uses the passed device string (default GPU.1 = RTX 4070 Ti
+    via OpenCL — use CUDA/TRT path via ONNX for best NVIDIA perf).
+    """
     model_path = Path(model_path)
     if model_path.suffix == ".onnx":
         import onnxruntime as ort
-        providers = ["CPUExecutionProvider"]
-        try:
-            import onnxruntime as ort
-            if "DmlExecutionProvider" in ort.get_available_providers():
-                providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-        except Exception:
-            pass
+        # Ensure cuDNN DLL is discoverable (installed via nvidia-cudnn-cu12)
+        _ensure_cudnn()
+        available = ort.get_available_providers()
+        if "CUDAExecutionProvider" in available:
+            providers = [
+                ("CUDAExecutionProvider", {"device_id": 1}),  # RTX 4070 Ti
+                "CPUExecutionProvider",
+            ]
+        else:
+            providers = ["CPUExecutionProvider"]
         return ort.InferenceSession(str(model_path), providers=providers)
     else:
         import openvino as ov
