@@ -48,7 +48,13 @@ class ModelCache:
       .onnx →  ONNX Runtime
     """
 
-    def __init__(self, max_models: int = 4, device: str = "GPU.1"):
+    def __init__(self, max_models: int = 4, device: str = "CPU"):
+        """
+        device applies to OpenVINO IR models only.
+        ONNX models always use CUDAExecutionProvider (RTX 4070 Ti, device_id=1)
+        when available, regardless of this setting.
+        OpenVINO GPU plugin via OpenCL is slower than CPU on NVIDIA hardware.
+        """
         """
         device: OpenVINO device string — "CPU", "GPU", "AUTO".
                 ONNX Runtime always uses CPU/DirectML depending on
