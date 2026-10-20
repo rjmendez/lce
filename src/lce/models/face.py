@@ -1,7 +1,9 @@
-"""Face enhancement via GFPGAN v1.4 (Apache-2.0, optional face pack)."""
+"""Face restoration via GFPGAN v1.4 (optional face pack). Not exposed by the MCP server."""
 from __future__ import annotations
 
 import numpy as np
+
+from lce.engine import input_name
 
 _MODEL_ID = "gfpgan-v14"
 _SIZE = 512
@@ -18,10 +20,12 @@ def _infer(session, feed: dict) -> np.ndarray:
 
 def run(img_chw_f32: np.ndarray, cache) -> np.ndarray:
     """
-    Enhance faces in image. Model must be downloaded separately:
+    Restore a face image. Model must be downloaded separately:
       lce-weights get gfpgan-v14
     Raises RuntimeError with helpful message if model not downloaded.
-    Input resized to 512×512, processed, then resized back.
+    There is no face detection: the WHOLE image is resized to 512×512 (aspect
+    ratio not preserved), run through GFPGAN, and resized back. Only meaningful
+    for an already-cropped face; a full photo comes back distorted.
     Normalise to [-1,1] before inference, denormalise after.
     """
     from lce.models.registry import model_path
@@ -30,7 +34,7 @@ def run(img_chw_f32: np.ndarray, cache) -> np.ndarray:
         raise RuntimeError(
             "GFPGAN v1.4 model not found. Download it with:\n"
             "  lce-weights get gfpgan-v14\n"
-            "(~340 MB, offered as optional face enhancement pack)"
+            "(~340 MB, optional face pack)"
         )
 
     from PIL import Image
@@ -44,7 +48,7 @@ def run(img_chw_f32: np.ndarray, cache) -> np.ndarray:
         / 255.0
     )
     normalized = resized * 2.0 - 1.0                               # [0,1] → [-1,1]
-    out = _infer(session, {"input": normalized[np.newaxis]})[0]    # [3,512,512] in [-1,1]
+    out = _infer(session, {input_name(session): normalized[np.newaxis]})[0]    # [3,512,512] in [-1,1]
     restored = np.clip((out + 1.0) / 2.0, 0.0, 1.0)               # [-1,1] → [0,1]
 
     hwc_out = (restored.transpose(1, 2, 0) * 255.0).clip(0, 255).astype(np.uint8)

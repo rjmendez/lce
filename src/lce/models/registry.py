@@ -4,13 +4,18 @@ lce.models.registry — model registry and weight downloader.
 Reads src/lce/weights/models.toml for the list of available model bundles.
 Each bundle has:
   id          — unique identifier used in code
-  capability  — upscale | sharpen | triage | segment | face
-  url         — download URL (HuggingFace hub or GitHub release)
-  sha256      — hex digest of the downloaded file
-  format      — onnx | openvino
-  size_mb     — approximate compressed download size
-  license     — SPDX license expression
+  capability  — upscale | sharpen | segment | face
+  url         — https download URL
+  sha256      — hex digest of the file (required; an entry without one is refused)
+  size_bytes  — exact file size, checked whenever a cached file is reused
+  format      — onnx
+  license     — license of the weights (or "unspecified")
   description — human-readable description
+  optional    — true for packs not needed by the core tools
+
+A download goes to ``<name>.part``, its SHA-256 and size are verified, and only
+then is it renamed to its final name, so an interrupted download is never
+mistaken for a model.
 
 run `lce-weights download` to fetch everything.
 run `lce-weights list` to see what's available.
@@ -18,14 +23,12 @@ run `lce-weights list` to see what's available.
 from __future__ import annotations
 
 import hashlib
-import sys
+import os
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redef]
+import tomllib
 
 _REGISTRY_FILE = Path(__file__).parent.parent / "weights" / "models.toml"
 _DEFAULT_WEIGHTS_DIR = Path.home() / ".lce" / "weights"
@@ -43,46 +46,77 @@ def available() -> list[dict]:
 
 
 def weights_dir() -> Path:
-    import os
     d = Path(os.environ.get("LCE_WEIGHTS_DIR", str(_DEFAULT_WEIGHTS_DIR)))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def model_path(model_id: str) -> Path | None:
-    """Return local path to the model file, or None if not downloaded."""
+def _entry(model_id: str) -> dict | None:
     for m in available():
         if m["id"] == model_id:
-            fname = Path(m["url"]).name
-            p = weights_dir() / fname
-            return p if p.exists() else None
+            return m
     return None
+
+
+def _file_ok(path: Path, entry: dict) -> bool:
+    """A cached file counts only if its size matches the registry."""
+    size = entry.get("size_bytes")
+    return path.is_file() and (size is None or path.stat().st_size == size)
+
+
+def model_path(model_id: str) -> Path | None:
+    """Return local path to the model file, or None if not (fully) downloaded."""
+    m = _entry(model_id)
+    if m is None:
+        return None
+    p = weights_dir() / Path(m["url"]).name
+    return p if _file_ok(p, m) else None
 
 
 def ensure(model_id: str) -> Path:
     """Return path to model, downloading if necessary."""
+    m = _entry(model_id)
+    if m is None:
+        raise KeyError(f"Unknown model: {model_id!r}. Run `lce-weights list`.")
     p = model_path(model_id)
     if p is not None:
         return p
-    for m in available():
-        if m["id"] == model_id:
-            return _download(m)
-    raise KeyError(f"Unknown model: {model_id!r}. Run `lce-weights list`.")
+    return _download(m)
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _download(entry: dict) -> Path:
     url   = entry["url"]
     sha   = entry.get("sha256", "")
+    if not sha:
+        raise ValueError(f"Registry entry {entry['id']!r} has no sha256; refusing to download")
+    if urlparse(url).scheme != "https":
+        raise ValueError(f"Registry entry {entry['id']!r} url is not https: {url}")
     fname = Path(url).name
     dest  = weights_dir() / fname
-    print(f"Downloading {entry['id']} ({entry.get('size_mb', '?')} MB) …", flush=True)
-    urllib.request.urlretrieve(url, dest, reporthook=_progress)
-    print()
-    if sha:
-        digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+    part  = dest.with_name(dest.name + ".part")
+    print(f"Downloading {entry['id']} ({entry.get('size_bytes', '?')} bytes) …", flush=True)
+    try:
+        urllib.request.urlretrieve(url, part, reporthook=_progress)
+        print()
+        digest = _sha256_of(part)
         if digest != sha:
-            dest.unlink()
             raise ValueError(f"SHA-256 mismatch for {fname}: expected {sha}, got {digest}")
+        size = entry.get("size_bytes")
+        if size is not None and part.stat().st_size != size:
+            raise ValueError(
+                f"Size mismatch for {fname}: expected {size}, got {part.stat().st_size}")
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    os.replace(part, dest)
     return dest
 
 

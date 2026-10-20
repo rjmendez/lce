@@ -2,14 +2,16 @@
 
 AI-powered photo enhancement for [LightCraft](https://lightcraft.app) using only open-source model weights.
 
-**Scope: image enhancement only.** Sharpening, upscaling, subject segmentation, and quality routing — nothing else. No workflow, no metadata, no submission pipelines.
+**Scope: image enhancement only.** Sharpening, upscaling, a segmentation mask, and quality routing — nothing else. No workflow, no metadata, no submission pipelines.
 
-**Capabilities**
-- 2× / 4× upscaling
-- Lens-blur and motion-blur sharpening
-- Degradation-aware auto-routing via DA-CLIP
-- Subject-aware processing with SAM segmentation
-- Face enhancement
+**Capabilities** (what the code actually does)
+- 2× / 4× upscaling with HAT ONNX models. The registered weights are a Sentinel-2 satellite-imagery fine-tune of full HAT (fixed 64×64 input); quality on ordinary photos is not established, and the weights' license is unspecified on their model card.
+- Deblurring with NAFNet (fp32).
+- Quality routing by BRISQUE score plus a resolution check (not DA-CLIP). Needs the `triage` extra (torch + piq).
+- `segment`: a MobileSAM mask from a uniform 3×3 grid of positive points. It is a generic mask, not a subject detector, and no other tool uses it.
+- `lce.models.face` (GFPGAN v1.4, optional pack) restores an already-cropped face. It has no face detection and is not exposed by the MCP server.
+
+Image tools return a JPEG q95 preview over MCP; pass `output_path` to get the full-quality file (EXIF and ICC profile carried over from the input). Upscaling does not by itself meet any marketplace size or quality requirement.
 
 **Architecture**
 
@@ -23,18 +25,19 @@ LightCraft ──MCP──▶ lce server ──▶ tiled inference engine ──
 ## Quick start
 
 ```bash
-pip install lce[serve]
-lce-weights download          # downloads ~600 MB of open weights
-lce-serve --port 8091         # starts the MCP server (stdio by default for LightCraft)
+pip install "lce[serve,triage]"
+lce-weights download          # downloads ~800 MB of open weights (sha256-verified)
+lce-serve                     # MCP server on stdio (what LightCraft expects)
+lce-serve --transport http --port 8091 --allow-dir D:\photos   # HTTP; path/output_path limited to --allow-dir
 ```
 
 In LightCraft → Preferences → Plugins → Add MCP Server → point at `lce-serve`.
 
 ## Models
 
-All weights are open-source with permissive licenses (Apache 2.0 / MIT / BSD).
+Weights are open-source (MIT / Apache-2.0) except the HAT upscalers, whose license is unspecified on their model card.
 Run `lce-weights list` to see what's available and their provenance.
-See [docs/models.md](docs/models.md) for details and benchmarks.
+Each entry in `src/lce/weights/models.toml` records its source URL, pinned sha256 and license.
 
 ## What this is not
 
@@ -44,4 +47,4 @@ See [docs/models.md](docs/models.md) for details and benchmarks.
 
 ## License
 
-MIT. Model weights retain their own licenses — see [docs/models.md](docs/models.md).
+MIT. Model weights retain their own licenses — see the entries in `src/lce/weights/models.toml`.

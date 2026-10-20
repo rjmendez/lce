@@ -12,7 +12,8 @@ def run(img_chw_f32: np.ndarray, cache=None) -> str:
     """
     Returns route: 'skip' | 'sharpen' | 'sharpen_strong' | 'upscale'.
 
-    *cache* is accepted for API consistency but unused (BRISQUE is pure math).
+    *cache* is accepted for API consistency but unused (BRISQUE needs no model
+    file). Requires the optional ``triage`` extra (torch + piq).
     """
     import torch
     from piq import brisque
