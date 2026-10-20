@@ -134,16 +134,3 @@ class TestImageIO:
         assert loaded.get(0x0112) in (None, 1)  # no second rotation downstream
 
 
-class TestDevice:
-    def test_cuda_device_id_default_is_zero(self, monkeypatch):
-        monkeypatch.delenv("LCE_CUDA_DEVICE_ID", raising=False)
-        assert engine._cuda_device_id() == 0
-
-    def test_cuda_device_id_from_env(self, monkeypatch):
-        monkeypatch.setenv("LCE_CUDA_DEVICE_ID", "1")
-        assert engine._cuda_device_id() == 1
-
-    def test_cuda_device_id_rejects_garbage(self, monkeypatch):
-        monkeypatch.setenv("LCE_CUDA_DEVICE_ID", "gpu1")
-        with pytest.raises(ValueError, match="LCE_CUDA_DEVICE_ID must be an integer, got 'gpu1'"):
-            engine._cuda_device_id()

@@ -186,11 +186,14 @@ class LceHandler:
         from lce.models import enhance, segment, sharpen, triage, upscale
 
         if name == "health":
+            from lce.engine import degraded_counts
+
             info: dict[str, Any] = {
                 "status": "ok",
                 "device": self._device,
                 "loaded_models": [Path(p).stem for p in self._cache._lru.keys()],
                 "providers": {Path(p).stem: v for p, v in self._cache.providers.items()},
+                "onnx_degraded": degraded_counts(),      # sessions that did not end up on CUDA (from main's GPU provider logic)
             }
             try:
                 import openvino as ov
