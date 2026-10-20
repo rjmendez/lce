@@ -10,10 +10,13 @@ Each public module exposes a single entry point::
 The return value is a float32 ndarray of the same rank (shape may differ for upscale).
 
 Modules:
-  upscale  -- 2x / 4x super-resolution via HAT-S (Apache-2.0)
-  sharpen  -- motion/lens deblurring via NAFNet int8/fp32 (MIT)
-  segment  -- subject segmentation via MobileSAM (Apache-2.0)
+  upscale  -- 2x / 4x super-resolution via HAT (Sentinel-2 fine-tune, license unspecified)
+  sharpen  -- motion/lens deblurring via NAFNet fp32 (MIT)
+  segment  -- grid-prompted mask via MobileSAM
   triage   -- BRISQUE quality routing; no model file required (MIT)
   enhance  -- auto pipeline: triage -> route -> process
-  face     -- face restoration via GFPGAN v1.4, optional face pack (Apache-2.0)
+  face     -- GFPGAN v1.4 on a cropped face, optional pack; not exposed by the server
+
+The submodules are not imported here (triage needs optional deps); import them
+explicitly, e.g. ``from lce.models import sharpen``.
 """

@@ -1,91 +1,72 @@
-# lce model registry - open-weight ONNX models
-# sha256 left empty; integrity is verified at runtime after download.
+# lce model registry - open-weight ONNX models.
+# Every entry pins sha256 and size_bytes (values taken from the Hugging Face
+# file listing and re-computed on the downloaded file). The registry refuses
+# an entry with an empty sha256, verifies the digest before a download is
+# moved into place, and checks size_bytes whenever a cached file is reused.
+# URLs were checked to exist on 2026-10-20.
 
 [[model]]
-id          = "hat-s-x4"
+id          = "hat-sentinel-x4"
 capability  = "upscale"
-url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT-S_SRx4.onnx"
-sha256      = ""
+url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT_SRx4_Sentinel.onnx"
+sha256      = "6ffbe222f76d0a7113a24e2cedb3231ed6afe600489e6cf03e5570811cbb5d23"
+size_bytes  = 160967438
 format      = "onnx"
-size_mb     = 40
-license     = "Apache-2.0"
-description = "HAT-S 4x super-resolution (Apache-2.0)"
+license     = "unspecified"
+description = "HAT 4x super-resolution (full HAT, not HAT-S), fine-tuned on Sentinel-2 satellite imagery; fixed 64x64 input. The model card states no license (upstream HAT is Apache-2.0); quality on ordinary photos is not established."
 optional    = false
 
 [[model]]
-id          = "hat-s-x2"
+id          = "hat-sentinel-x2"
 capability  = "upscale"
-url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT-S_SRx2.onnx"
-sha256      = ""
+url         = "https://huggingface.co/ArturWoz/HAT-Sentinel-onnx/resolve/main/HAT_SRx2_Sentinel.onnx"
+sha256      = "4d6bb09cb253fbd618b8f251d5629e84535ea44d026e7923990bc80112cb8de1"
+size_bytes  = 160376112
 format      = "onnx"
-size_mb     = 40
-license     = "Apache-2.0"
-description = "HAT-S 2x super-resolution (Apache-2.0)"
-optional    = false
-
-[[model]]
-id          = "nafnet-int8"
-capability  = "sharpen"
-url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may_int8.onnx"
-sha256      = ""
-format      = "onnx"
-size_mb     = 18
-license     = "MIT"
-description = "NAFNet int8 deblurring - fast CPU mode (MIT)"
+license     = "unspecified"
+description = "HAT 2x super-resolution (full HAT, not HAT-S), fine-tuned on Sentinel-2 satellite imagery; fixed 64x64 input. The model card states no license (upstream HAT is Apache-2.0); quality on ordinary photos is not established."
 optional    = false
 
 [[model]]
 id          = "nafnet-fp32"
 capability  = "sharpen"
 url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx"
-sha256      = ""
+sha256      = "07263f416febecce10193dd648e950b22e397cf521eedab1a114ef77b2bc9587"
+size_bytes  = 91736251
 format      = "onnx"
-size_mb     = 66
 license     = "MIT"
-description = "NAFNet fp32 deblurring - quality mode (MIT)"
+description = "NAFNet fp32 deblurring (opencv/deblurring_nafnet)"
 optional    = false
 
 [[model]]
 id          = "mobilesam-encoder"
 capability  = "segment"
-url         = "https://huggingface.co/qualcomm/MobileSam/resolve/main/mobile_sam_encoder.onnx"
-sha256      = ""
+url         = "https://huggingface.co/Acly/MobileSAM/resolve/main/mobile_sam_image_encoder.onnx"
+sha256      = "580f5fb648ea1062c0aabc26217aed56921985f03f0cbbd852bba81d760cc749"
+size_bytes  = 28157093
 format      = "onnx"
-size_mb     = 27
-license     = "Apache-2.0"
-description = "MobileSAM image encoder (Apache-2.0)"
+license     = "MIT"
+description = "MobileSAM image encoder incl. preprocessing (Acly/MobileSAM; card says MIT, upstream MobileSAM is Apache-2.0)"
 optional    = false
 
 [[model]]
 id          = "mobilesam-decoder"
 capability  = "segment"
-url         = "https://huggingface.co/qualcomm/MobileSam/resolve/main/mobile_sam_decoder.onnx"
-sha256      = ""
+url         = "https://huggingface.co/Acly/MobileSAM/resolve/main/sam_mask_decoder_single.onnx"
+sha256      = "93915fc7c993ab9d59ab8c9ccd3bce37f7509c81ab4150a74abd4d2abbd8570d"
+size_bytes  = 16501323
 format      = "onnx"
-size_mb     = 24
-license     = "Apache-2.0"
-description = "MobileSAM mask decoder (Apache-2.0)"
-optional    = false
-
-[[model]]
-id          = "iat-lowlight"
-capability  = "color"
-url         = "https://huggingface.co/eleasm/IAT-ONNX/resolve/main/IAT_lol_v1.onnx"
-sha256      = ""
-format      = "onnx"
-size_mb     = 1
-license     = "Apache-2.0"
-description = "IAT low-light and exposure correction (Apache-2.0)"
+license     = "MIT"
+description = "SAM mask decoder, single-mask output (Acly/MobileSAM)"
 optional    = false
 
 [[model]]
 id          = "gfpgan-v14"
 capability  = "face"
 url         = "https://huggingface.co/Neus/GFPGANv1.4/resolve/main/GFPGANv1.4.onnx"
-sha256      = ""
+sha256      = "cd7311b8d9e13cdb1e208b12363182da58c7bf45e26d1aa67bbeac4751aae92e"
+size_bytes  = 340256686
 format      = "onnx"
-size_mb     = 340
 license     = "Apache-2.0"
-description = "GFPGAN v1.4 face enhancement - optional face pack (Apache-2.0)"
+description = "GFPGAN v1.4 face restoration, optional face pack (re-hosted by Neus; the re-host card states no license, upstream GFPGAN is Apache-2.0)"
 optional    = true
-

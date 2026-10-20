@@ -204,10 +204,11 @@ class TestHealthSurface:
 
         monkeypatch.setitem(sys.modules, "openvino", SimpleNamespace(Core=lambda: SimpleNamespace(available_devices=["CPU"])))
         engine._open_onnx(FakeOrt(got=[CPU]), Path("m.onnx"))
-        handler = LceHandler(SimpleNamespace(_lru={"/x/daclip.onnx": object()}), "CPU")
+        handler = LceHandler(SimpleNamespace(_lru={"/x/daclip.onnx": object()}, providers={"/x/daclip.onnx": ["CPUExecutionProvider"]}), "CPU")
         result = handler._dispatch("health", {})
         assert json.loads(result["content"][0]["text"]) == {
             "status": "ok", "device": "CPU", "openvino_devices": ["CPU"], "loaded_models": ["daclip"],
+            "providers": {"daclip": ["CPUExecutionProvider"]},
             "onnx_degraded": {"cuda-not-obtained": 1}}
 
 

@@ -16,11 +16,32 @@ def _img(C: int = 3, H: int = 64, W: int = 64, val: float = 0.5) -> np.ndarray:
     return np.full((C, H, W), val, dtype=np.float32)
 
 
-def _onnx_session(*outputs: np.ndarray):
+class _Input:
+    def __init__(self, name: str, shape: list):
+        self.name = name
+        self.shape = shape
+
+
+class _FakeSession:
+    """Test double for an ONNX InferenceSession: run() returns canned outputs and
+    records every feed dict it was given (so tests can assert tensor names)."""
+
+    def __init__(self, outputs, input_name="x", input_shape=("n", 3, "h", "w")):
+        self._outputs = list(outputs)
+        self._input = _Input(input_name, list(input_shape))
+        self.feeds: list[dict] = []
+
+    def get_inputs(self):
+        return [self._input]
+
+    def run(self, _names, feed):
+        self.feeds.append(feed)
+        return self._outputs
+
+
+def _onnx_session(*outputs: np.ndarray, **kw):
     """Fake ONNX InferenceSession whose .run() returns *outputs as a list."""
-    sess = MagicMock(spec=["run"])
-    sess.run.return_value = list(outputs)
-    return sess
+    return _FakeSession(outputs, **kw)
 
 
 def _fake_cache(*sessions):
@@ -69,7 +90,7 @@ class TestUpscale:
         result, _, _ = self._run_mocked(4)
         assert result is not None
 
-    def test_4x_selects_hat_s_x4_model(self):
+    def test_4x_selects_hat_sentinel_x4_model(self):
         from lce.models import upscale
         calls = []
 
@@ -81,9 +102,9 @@ class TestUpscale:
         cache = _fake_cache(_onnx_session(mock_out))
         with patch("lce.models.registry.ensure", side_effect=_ensure):
             upscale.run(_img(), cache, scale=4)
-        assert calls == ["hat-s-x4"]
+        assert calls == ["hat-sentinel-x4"]
 
-    def test_2x_selects_hat_s_x2_model(self):
+    def test_2x_selects_hat_sentinel_x2_model(self):
         from lce.models import upscale
         calls = []
 
@@ -95,7 +116,7 @@ class TestUpscale:
         cache = _fake_cache(_onnx_session(mock_out))
         with patch("lce.models.registry.ensure", side_effect=_ensure):
             upscale.run(_img(), cache, scale=2)
-        assert calls == ["hat-s-x2"]
+        assert calls == ["hat-sentinel-x2"]
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +157,7 @@ class TestSharpen:
         expected = np.full_like(result, 0.5)
         np.testing.assert_allclose(result, expected, atol=1e-6)
 
-    def test_quality_true_selects_fp32_model(self):
+    def test_selects_nafnet_fp32_model_and_feeds_its_input_name(self):
         from lce.models import sharpen
         calls = []
 
@@ -145,24 +166,31 @@ class TestSharpen:
             return Path("/fake/nafnet.onnx")
 
         mock_out = np.full((1, 3, 64, 64), 0.5, dtype=np.float32)
-        cache = _fake_cache(_onnx_session(mock_out))
+        sess = _onnx_session(mock_out, input_name="lq")
         with patch("lce.models.registry.ensure", side_effect=_ensure):
-            sharpen.run(_img(), cache, quality=True)
+            sharpen.run(_img(), _fake_cache(sess))
         assert calls == ["nafnet-fp32"]
+        assert list(sess.feeds[0]) == ["lq"]
 
-    def test_quality_false_selects_int8_model(self):
+    def test_strength_outside_unit_range_raises(self):
         from lce.models import sharpen
-        calls = []
+        with pytest.raises(ValueError, match=r"strength must be in \[0, 1\], got 1.5"):
+            sharpen.run(_img(), MagicMock(), strength=1.5)
 
-        def _ensure(mid):
-            calls.append(mid)
-            return Path("/fake/nafnet.onnx")
+    def test_strength_inside_unit_range_runs(self):
+        # positive twin for the out-of-range test
+        result, _, _ = self._run_mocked(1.0)
+        assert result.shape == (3, 64, 64)
 
-        mock_out = np.full((1, 3, 64, 64), 0.5, dtype=np.float32)
+    def test_small_image_is_padded_without_reflect_error(self):
+        # 3x5 image: reflect-padding to a multiple of 8 needs pad < size and
+        # would raise ValueError; the edge fallback must handle it.
+        from lce.models import sharpen
+        mock_out = np.full((1, 3, 8, 8), 0.5, dtype=np.float32)
         cache = _fake_cache(_onnx_session(mock_out))
-        with patch("lce.models.registry.ensure", side_effect=_ensure):
-            sharpen.run(_img(), cache, quality=False)
-        assert calls == ["nafnet-int8"]
+        with patch("lce.models.registry.ensure", return_value=Path("/fake/nafnet.onnx")):
+            result = sharpen.run(_img(3, 3, 5, val=0.1), cache)
+        np.testing.assert_allclose(result, np.full((3, 3, 5), 0.5), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +363,33 @@ class TestEnhance:
             result = enhance.run(input_img, MagicMock(), mode="auto")
         mock_up.assert_called_once()
         np.testing.assert_array_equal(result, expected)
+
+
+    def test_unknown_mode_raises(self):
+        from lce.models import enhance
+        with pytest.raises(ValueError, match="mode must be one of"):
+            enhance.run(_img(), MagicMock(), mode="bogus")
+
+    def test_unknown_triage_route_raises_instead_of_returning_input(self):
+        from lce.models import enhance
+        with patch("lce.models.triage.run", return_value="mystery"):
+            with pytest.raises(ValueError, match="unknown route 'mystery'"):
+                enhance.run(_img(), MagicMock(), mode="auto")
+
+    def test_scale_is_passed_to_upscale(self):
+        from lce.models import enhance
+        with patch("lce.models.upscale.run", return_value=_img(3, 128, 128)) as mock_up:
+            enhance.run(_img(), MagicMock(), mode="upscale", scale=2)
+        assert mock_up.call_args.kwargs["scale"] == 2
+
+    def test_run_with_route_reports_route(self):
+        from lce.models import enhance
+        with patch("lce.models.triage.run", return_value="skip"):
+            _, route = enhance.run_with_route(_img(), MagicMock(), mode="auto")
+        assert route == "skip"
+        with patch("lce.models.sharpen.run", return_value=_img()):
+            _, route = enhance.run_with_route(_img(), MagicMock(), mode="sharpen")
+        assert route == "sharpen"
 
 
 # ---------------------------------------------------------------------------
