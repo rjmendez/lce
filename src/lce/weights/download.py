@@ -1,7 +1,7 @@
 """lce.weights.download — CLI weight manager."""
 from __future__ import annotations
 import argparse
-from lce.models.registry import available, ensure, model_path, weights_dir
+from lce.models.registry import available, ensure, is_local_only, model_path, weights_dir
 
 
 def main() -> None:
@@ -22,6 +22,10 @@ def main() -> None:
             print(f"  [{status}] {m['id']:30s}  {m['license']:15s}  {m.get('size_bytes', 0) // 1_000_000:>4} MB  {m['description']}")
     elif args.cmd == "download":
         for m in available():
+            if is_local_only(m["id"]):
+                status = "found" if model_path(m["id"]) else "MISSING (no public download)"
+                print(f"  skipping {m['id']} (local-only): {status}")
+                continue
             ensure(m["id"])
         print("All models ready.")
     elif args.cmd == "get":

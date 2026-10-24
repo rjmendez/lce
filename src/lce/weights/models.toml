@@ -28,6 +28,17 @@ description = "HAT 2x super-resolution (full HAT, not HAT-S), fine-tuned on Sent
 optional    = false
 
 [[model]]
+id          = "hat-stock-lora-x2"
+capability  = "upscale"
+local_path  = "D:\\bio-cache\\sr-train\\hat_s_lora_r8_stock_x2.onnx"
+sha256      = "5abf1b5df906d28996a1b9ff3d372a7a27e30abc94d0e64c4c55d919a4ff55e1"
+size_bytes  = 117995327
+format      = "onnx"
+license     = "unspecified (derived from HAT-S, Apache-2.0; LoRA fine-tuned on the owner's private stock-photo collection -- not for redistribution)"
+description = "HAT-S 2x super-resolution, LoRA fine-tuned (rank 8) on real stock nature photos instead of the Sentinel-2 satellite-imagery weights below. Measured on held-out photos to sharpen real detail (web strands, dewdrop highlights) that the satellite fine-tune and bicubic both miss. Local-only: not publicly hosted, no download fallback. Dynamic H/W (verified against PyTorch to <1e-5 abs diff on two different tile sizes); window-partition batch-size math was constant-folded during ONNX tracing, so unusual tile sizes outside what was verified are unproven."
+optional    = true
+
+[[model]]
 id          = "nafnet-fp32"
 capability  = "sharpen"
 url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx"

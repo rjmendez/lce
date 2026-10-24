@@ -5,7 +5,7 @@ AI-powered photo enhancement for [LightCraft](https://lightcraft.app) using only
 **Scope: image enhancement only.** Sharpening, upscaling, a segmentation mask, and quality routing — nothing else. No workflow, no metadata, no submission pipelines.
 
 **Capabilities** (what the code actually does)
-- 2× / 4× upscaling with HAT ONNX models. The registered weights are a Sentinel-2 satellite-imagery fine-tune of full HAT (fixed 64×64 input); quality on ordinary photos is not established, and the weights' license is unspecified on their model card.
+- 2× / 4× upscaling with HAT ONNX models. The default registered weights are a Sentinel-2 satellite-imagery fine-tune of full HAT (fixed 64×64 input); quality on ordinary photos is not established, and the weights' license is unspecified on their model card. `variant: "stock"` (2× only) switches to a HAT-S + LoRA fine-tune on real stock nature photos instead -- measured on held-out photos to recover real detail (web strands, dewdrop highlights) that both bicubic and the satellite fine-tune miss. It's a **local-only** model: not publicly hosted, no `lce-weights download` fallback -- only present on the machine it was trained/exported on.
 - Deblurring with NAFNet (fp32).
 - Quality routing by BRISQUE score plus a resolution check (not DA-CLIP). Needs the `triage` extra (torch + piq).
 - `segment`: a MobileSAM mask from a uniform 3×3 grid of positive points. It is a generic mask, not a subject detector, and no other tool uses it.
@@ -37,7 +37,10 @@ In LightCraft → Preferences → Plugins → Add MCP Server → point at `lce-s
 
 Weights are open-source (MIT / Apache-2.0) except the HAT upscalers, whose license is unspecified on their model card.
 Run `lce-weights list` to see what's available and their provenance.
-Each entry in `src/lce/weights/models.toml` records its source URL, pinned sha256 and license.
+Each entry in `src/lce/weights/models.toml` records its source URL, pinned sha256 and license --
+except `hat-stock-lora-x2`, a local-only personal fine-tune with a `local_path` instead of a URL:
+`lce-weights download` skips it (nothing to fetch), and it's only usable on a machine that already
+has the file.
 
 ## What this is not
 

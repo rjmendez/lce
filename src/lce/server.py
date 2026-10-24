@@ -82,6 +82,16 @@ def _tools() -> list[dict]:
                     "image_b64": {"type": "string"},
                     "path": {"type": "string"},
                     "scale": {"type": "integer", "enum": [2, 4], "default": 2},
+                    "variant": {
+                        "type": "string",
+                        "enum": ["sentinel", "stock"],
+                        "default": "sentinel",
+                        "description": (
+                            "sentinel (default): Sentinel-2 satellite-imagery HAT. "
+                            "stock: HAT-S + LoRA fine-tuned on real stock nature photos, "
+                            "scale=2 only, local-only (not available unless this machine has it)."
+                        ),
+                    },
                     "output_path": {"type": "string", "description": "Write the full-quality result here (optional)"},
                 },
             },
@@ -220,7 +230,9 @@ class LceHandler:
 
         if name == "upscale":
             scale = int(args.get("scale", 2))
-            out = upscale.run(img, self._cache, scale=scale)
+            variant = args.get("variant", "sentinel")
+            variant = None if variant == "sentinel" else variant
+            out = upscale.run(img, self._cache, scale=scale, variant=variant)
             return _image_result(out, out_path, meta)
 
         if name == "segment":

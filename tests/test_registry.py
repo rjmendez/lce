@@ -114,21 +114,79 @@ class TestCachedFiles:
             registry.ensure("nope")
 
 
+class TestLocalPath:
+    """A local_path entry (personal fine-tune, no public URL) resolves straight
+    from disk, with no network involved -- see models.toml's local_path docs."""
+
+    def _write_local(self, toml_path, local_file, sha=GOOD_SHA, size=len(PAYLOAD)):
+        escaped = str(local_file).replace("\\", "\\\\")
+        toml_path.write_text(
+            '[[model]]\nid = "local-tiny"\ncapability = "upscale"\n'
+            f'local_path = "{escaped}"\nsha256 = "{sha}"\nsize_bytes = {size}\n'
+            'format = "onnx"\nlicense = "unspecified"\ndescription = "t"\noptional = true\n',
+            encoding="utf-8")
+
+    def test_present_file_of_the_right_size_resolves_without_network(self, tmp_path, monkeypatch):
+        toml = tmp_path / "models.toml"
+        monkeypatch.setattr(registry, "_REGISTRY_FILE", toml)
+        local_file = tmp_path / "local.onnx"
+        local_file.write_bytes(PAYLOAD)
+        self._write_local(toml, local_file)
+        net = _Net()
+        monkeypatch.setattr(urllib.request, "urlretrieve", net)
+        assert registry.is_local_only("local-tiny") is True
+        assert registry.ensure("local-tiny") == local_file
+        assert net.urls == []  # never touched the network
+
+    def test_missing_file_raises_file_not_found_not_a_download_attempt(self, tmp_path, monkeypatch):
+        toml = tmp_path / "models.toml"
+        monkeypatch.setattr(registry, "_REGISTRY_FILE", toml)
+        local_file = tmp_path / "missing.onnx"  # never created
+        self._write_local(toml, local_file)
+        net = _Net()
+        monkeypatch.setattr(urllib.request, "urlretrieve", net)
+        with pytest.raises(FileNotFoundError, match="local-tiny.*no public download"):
+            registry.ensure("local-tiny")
+        assert net.urls == []
+
+    def test_wrong_size_file_is_treated_as_missing(self, tmp_path, monkeypatch):
+        toml = tmp_path / "models.toml"
+        monkeypatch.setattr(registry, "_REGISTRY_FILE", toml)
+        local_file = tmp_path / "truncated.onnx"
+        local_file.write_bytes(PAYLOAD[:10])
+        self._write_local(toml, local_file)
+        assert registry.model_path("local-tiny") is None
+        with pytest.raises(FileNotFoundError):
+            registry.ensure("local-tiny")
+
+    def test_url_based_entry_is_not_local_only(self, reg):
+        # positive twin: a normal downloadable entry reports is_local_only() == False
+        assert registry.is_local_only("tiny") is False
+
+
 class TestShippedRegistry:
     """Properties of the real models.toml (not a stub)."""
 
-    def test_every_entry_pins_digest_size_and_https_url(self):
+    def test_every_entry_pins_digest_size_and_https_url_or_local_path(self):
         entries = registry.available()
         assert [e["id"] for e in entries] == [
-            "hat-sentinel-x4", "hat-sentinel-x2", "nafnet-fp32",
+            "hat-sentinel-x4", "hat-sentinel-x2", "hat-stock-lora-x2", "nafnet-fp32",
             "mobilesam-encoder", "mobilesam-decoder", "gfpgan-v14"]
         for e in entries:
             assert re.fullmatch(r"[0-9a-f]{64}", e["sha256"]), e["id"]
             assert isinstance(e["size_bytes"], int) and e["size_bytes"] > 0, e["id"]
-            assert e["url"].startswith("https://huggingface.co/"), e["id"]
+            if "local_path" in e:
+                assert "url" not in e, e["id"]
+            else:
+                assert e["url"].startswith("https://huggingface.co/"), e["id"]
+
+    def test_hat_stock_lora_x2_is_the_only_local_only_entry(self):
+        entries = registry.available()
+        local_only = [e["id"] for e in entries if "local_path" in e]
+        assert local_only == ["hat-stock-lora-x2"]
 
     def test_every_model_id_used_by_code_is_registered(self):
         from lce.models import face, segment, sharpen, upscale
         used = {sharpen._MODEL_ID, segment._ENCODER_ID, segment._DECODER_ID,
-                face._MODEL_ID, *upscale._MODEL_IDS.values()}
+                face._MODEL_ID, *upscale._MODEL_IDS.values(), *upscale._VARIANT_MODEL_IDS.values()}
         assert used == {e["id"] for e in registry.available()}

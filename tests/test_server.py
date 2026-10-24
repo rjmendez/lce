@@ -51,6 +51,17 @@ def _nearest_up_model(input_name, scale, path):
     _save(_model(g), path)
 
 
+def _nearest_up_model_dynamic(input_name, scale, path):
+    """Dynamic H/W input, nearest-neighbour upscale by *scale* (like the real
+    stock-variant model, which has no fixed tile size)."""
+    x = helper.make_tensor_value_info(input_name, TP.FLOAT, [1, 3, "h", "w"])
+    y = helper.make_tensor_value_info("output", TP.FLOAT, [1, 3, "h2", "w2"])
+    scales = numpy_helper.from_array(np.array([1, 1, scale, scale], np.float32), "scales")
+    node = helper.make_node("Resize", [input_name, "", "scales"], ["output"], mode="nearest")
+    g = helper.make_graph([node], "up_dyn", [x], [y], initializer=[scales])
+    _save(_model(g), path)
+
+
 def _sam_encoder_model(path):
     x = helper.make_tensor_value_info("input_image", TP.FLOAT, ["ih", "iw", 3])
     y = helper.make_tensor_value_info("image_embeddings", TP.FLOAT, [1, 256, 64, 64])
@@ -199,6 +210,75 @@ class TestUpscale:
         _photo(src)
         resp = _call(handler, "upscale", path=str(src), scale=3)
         assert resp["error"]["message"] == "scale must be 2 or 4, got 3"
+
+    def test_explicit_sentinel_variant_behaves_like_the_default(self, handler, tmp_path):
+        # positive twin for the "stock" variant tests below
+        src = tmp_path / "in.png"
+        arr = _photo(src, H=50, W=70)
+        out = tmp_path / "out.png"
+        _item(_call(handler, "upscale", path=str(src), scale=2, variant="sentinel", output_path=str(out)))
+        expected = np.repeat(np.repeat(arr, 2, axis=0), 2, axis=1)
+        np.testing.assert_array_equal(np.asarray(Image.open(out)), expected)
+
+
+class TestUpscaleStockVariant:
+    """The "stock" variant is a local-only registry entry (local_path, not url) --
+    exercised with its own registry so the shared `handler` fixture (every other
+    test in this file) never has to know about it."""
+
+    @pytest.fixture
+    def handler_with_stock(self, tmp_path, monkeypatch):
+        wdir = tmp_path / "weights"
+        wdir.mkdir()
+        monkeypatch.setenv("LCE_WEIGHTS_DIR", str(wdir))
+        toml = tmp_path / "models.toml"
+        monkeypatch.setattr(registry, "_REGISTRY_FILE", toml)
+
+        blocks = []
+        for mid, (fname, build) in MODELS.items():
+            build(wdir / fname)
+            data = (wdir / fname).read_bytes()
+            blocks.append(
+                f'[[model]]\nid = "{mid}"\ncapability = "x"\nurl = "https://example.invalid/{fname}"\n'
+                f'sha256 = "{hashlib.sha256(data).hexdigest()}"\nsize_bytes = {len(data)}\n'
+                'format = "onnx"\nlicense = "MIT"\ndescription = "tiny"\noptional = false\n')
+
+        stock_path = wdir / "stock.onnx"
+        _nearest_up_model_dynamic("input", 2, stock_path)
+        stock_data = stock_path.read_bytes()
+        escaped = str(stock_path).replace("\\", "\\\\")
+        blocks.append(
+            '[[model]]\nid = "hat-stock-lora-x2"\ncapability = "upscale"\n'
+            f'local_path = "{escaped}"\n'
+            f'sha256 = "{hashlib.sha256(stock_data).hexdigest()}"\nsize_bytes = {len(stock_data)}\n'
+            'format = "onnx"\nlicense = "unspecified"\ndescription = "tiny local"\noptional = true\n')
+        toml.write_text("\n".join(blocks), encoding="utf-8")
+        return LceHandler(ModelCache(4, "CPU"), "CPU")
+
+    def test_stock_variant_scale_2_uses_the_local_only_model(self, handler_with_stock, tmp_path):
+        src = tmp_path / "in.png"
+        arr = _photo(src, H=50, W=70)
+        out = tmp_path / "out.png"
+        _item(_call(handler_with_stock, "upscale", path=str(src), scale=2, variant="stock", output_path=str(out)))
+        expected = np.repeat(np.repeat(arr, 2, axis=0), 2, axis=1)
+        np.testing.assert_array_equal(np.asarray(Image.open(out)), expected)
+
+    def test_stock_variant_scale_4_is_a_clean_error(self, handler_with_stock, tmp_path):
+        src = tmp_path / "in.png"
+        _photo(src)
+        resp = _call(handler_with_stock, "upscale", path=str(src), scale=4, variant="stock")
+        assert "no 'stock' upscale model for scale=4" in resp["error"]["message"]
+
+    def test_missing_local_file_is_a_clean_error_not_a_crash(self, handler_with_stock, tmp_path, monkeypatch):
+        import lce.models.registry as registry_mod
+        stock_entry = next(m for m in registry_mod.available() if m["id"] == "hat-stock-lora-x2")
+        import os
+        os.remove(stock_entry["local_path"])
+        src = tmp_path / "in.png"
+        _photo(src)
+        resp = _call(handler_with_stock, "upscale", path=str(src), scale=2, variant="stock")
+        assert "hat-stock-lora-x2" in resp["error"]["message"]
+        assert "no public download" in resp["error"]["message"]
 
 
 class TestSegment:

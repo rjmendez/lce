@@ -118,6 +118,31 @@ class TestUpscale:
             upscale.run(_img(), cache, scale=2)
         assert calls == ["hat-sentinel-x2"]
 
+    def test_stock_variant_selects_hat_stock_lora_x2_model(self):
+        from lce.models import upscale
+        calls = []
+
+        def _ensure(model_id: str):
+            calls.append(model_id)
+            return Path("/fake/hat.onnx")
+
+        mock_out = np.zeros((1, 3, 256 * 2, 256 * 2), dtype=np.float32)
+        cache = _fake_cache(_onnx_session(mock_out))
+        with patch("lce.models.registry.ensure", side_effect=_ensure):
+            upscale.run(_img(), cache, scale=2, variant="stock")
+        assert calls == ["hat-stock-lora-x2"]
+
+    def test_stock_variant_at_scale_4_raises_value_error(self):
+        # the stock fine-tune is scale=2 only
+        from lce.models import upscale
+        with pytest.raises(ValueError, match="no 'stock' upscale model for scale=4"):
+            upscale.run(_img(), MagicMock(), scale=4, variant="stock")
+
+    def test_unknown_variant_raises_value_error(self):
+        from lce.models import upscale
+        with pytest.raises(ValueError, match="no 'nope' upscale model for scale=2"):
+            upscale.run(_img(), MagicMock(), scale=2, variant="nope")
+
 
 # ---------------------------------------------------------------------------
 # sharpen
