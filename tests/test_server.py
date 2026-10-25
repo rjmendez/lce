@@ -322,21 +322,26 @@ class TestUpscaleStockVariant:
         assert "hat-stock-lora-x2" in resp["error"]["message"]
         assert "no public download" in resp["error"]["message"]
 
-    def test_missing_local_file_is_a_clean_error_not_a_crash_via_default(
+    def test_missing_local_file_via_default_falls_back_with_a_response_note(
         self, handler_with_stock, tmp_path, monkeypatch
     ):
-        # twin of the above for the default (no variant kwarg) path: the
-        # decided no-fallback behaviour holds through the server for the
-        # default too, not just when "stock" is requested explicitly.
+        # twin of the above for the default (no variant kwarg) path: unlike
+        # the explicit-variant case, the default path falls back to the
+        # satellite model and surfaces that as a text note ahead of the
+        # image, instead of hard-failing -- see upscale.run()'s docstring.
         import lce.models.registry as registry_mod
         stock_entry = next(m for m in registry_mod.available() if m["id"] == "hat-stock-lora-x2")
         import os
         os.remove(stock_entry["local_path"])
         src = tmp_path / "in.png"
-        _photo(src)
-        resp = _call(handler_with_stock, "upscale", path=str(src), scale=2)
-        assert "hat-stock-lora-x2" in resp["error"]["message"]
-        assert "no public download" in resp["error"]["message"]
+        _photo(src, H=50, W=70)
+        with pytest.warns(RuntimeWarning, match="hat-stock-lora-x2.*hat-sentinel-x2"):
+            resp = _call(handler_with_stock, "upscale", path=str(src), scale=2)
+        note = _item(resp, 0)
+        assert note["type"] == "text"
+        assert "hat-stock-lora-x2" in note["text"] and "hat-sentinel-x2" in note["text"]
+        image = _item(resp, 1)
+        assert image["mimeType"] == "image/jpeg"
 
 
 class TestSegment:

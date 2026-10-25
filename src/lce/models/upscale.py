@@ -2,8 +2,13 @@
 fine-tune on real stock photos (measured best on ordinary photos); default at
 4x is still ArturWoz/HAT-Sentinel-onnx, a Sentinel-2 satellite-imagery
 fine-tune (no validated real-photo 4x model exists). variant="sentinel" forces
-the satellite model explicitly at either scale."""
+the satellite model explicitly at either scale. If the scale=2 default's
+local-only weights are absent (e.g. a fresh install before weights are
+synced), run() falls back to the satellite model instead of hard-failing --
+but always via warnings.warn(), never silently; see run()'s docstring."""
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 from lce.engine import input_name, run_tiled, static_hw
@@ -39,7 +44,13 @@ def _infer(session, feed: dict) -> np.ndarray:
         return result[session.output(0)]
 
 
-def run(img_chw_f32: np.ndarray, cache, scale: int = 4, variant: str | None = None) -> np.ndarray:
+def run(
+    img_chw_f32: np.ndarray,
+    cache,
+    scale: int = 4,
+    variant: str | None = None,
+    warn: list[str] | None = None,
+) -> np.ndarray:
     """
     Upscale img_chw_f32 [C,H,W] by scale (2 or 4).
     Tiles through the model with run_tiled. The registered HAT models take a
@@ -59,10 +70,17 @@ def run(img_chw_f32: np.ndarray, cache, scale: int = 4, variant: str | None = No
     HAT-S checkpoint with no fine-tuning at all (only measured against
     bicubic, not head-to-head against the satellite model on real photos
     -- so it is offered as an explicit variant, not the scale=4 default).
-    There is no fallback: if a "stock" model's weights are absent,
-    registry.ensure() raises FileNotFoundError (naming the model id and
-    missing path) and that propagates unchanged -- a silent drop to a
-    lower-quality model would be an unannounced degraded result.
+
+    If the DEFAULT (variant=None) model's weights are missing -- e.g. a
+    fresh install of this machine-specific local-only model before weights
+    are synced over -- this falls back to the satellite model for that
+    scale instead of hard-failing, but never silently: it always calls
+    warnings.warn(), and if *warn* (a list) is passed, it also appends the
+    message there for a caller (e.g. the MCP server) to surface directly in
+    its response. An EXPLICIT variant request (e.g. variant="stock") never
+    falls back -- registry.ensure()'s FileNotFoundError propagates unchanged,
+    since a caller who named a specific model should get a loud, specific
+    error, not a substitution they didn't ask for.
     """
     from lce.models.registry import ensure
 
@@ -70,6 +88,23 @@ def run(img_chw_f32: np.ndarray, cache, scale: int = 4, variant: str | None = No
         if scale not in _MODEL_IDS:
             raise ValueError(f"scale must be 2 or 4, got {scale}")
         model_id = _MODEL_IDS[scale]
+        try:
+            path = ensure(model_id)
+        except FileNotFoundError:
+            fallback_id = _VARIANT_MODEL_IDS.get(("sentinel", scale))
+            if fallback_id is None:
+                raise
+            msg = (
+                f"default upscale model '{model_id}' is missing on this "
+                f"machine; falling back to '{fallback_id}' (lower measured "
+                f"quality -- run `lce-weights get {model_id}` or copy the "
+                f"local file into place to get the better default back)."
+            )
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+            if warn is not None:
+                warn.append(msg)
+            model_id = fallback_id
+            path = ensure(model_id)
     else:
         key = (variant, scale)
         if key not in _VARIANT_MODEL_IDS:
@@ -78,8 +113,8 @@ def run(img_chw_f32: np.ndarray, cache, scale: int = 4, variant: str | None = No
                 f"{sorted(_VARIANT_MODEL_IDS)}"
             )
         model_id = _VARIANT_MODEL_IDS[key]
+        path = ensure(model_id)  # explicit request: no fallback, ever
 
-    path = ensure(model_id)
     session = cache.load(path)
     name = input_name(session)
     tile_h, tile_w = static_hw(session) or (_DEFAULT_TILE, _DEFAULT_TILE)

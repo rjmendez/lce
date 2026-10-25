@@ -1,6 +1,7 @@
 """Hermetic tests for lce.models.* — no real model files required."""
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -136,9 +137,48 @@ class TestUpscale:
             upscale.run(_img(), cache, scale=2)
         assert calls == ["hat-stock-lora-x2"]
 
-    def test_2x_default_with_stock_weights_missing_raises_not_a_fallback(self):
-        # no silent fallback to the sentinel model when the stock weights
-        # are absent: registry.ensure()'s FileNotFoundError propagates as-is.
+    def test_2x_default_with_stock_weights_missing_falls_back_with_a_warning(self):
+        # default (variant=None) path: a missing stock file is an announced
+        # fallback to the satellite model, never a silent one -- it must go
+        # through warnings.warn(), and (when a warn list is passed) through
+        # that list too, for a caller like the server to surface directly.
+        from lce.models import upscale
+
+        def _ensure(model_id: str):
+            if model_id == "hat-stock-lora-x2":
+                raise FileNotFoundError(
+                    "'hat-stock-lora-x2' is a local-only model with no public "
+                    "download; expected it at /fake/missing/stock.onnx"
+                )
+            return Path("/fake/hat.onnx")
+
+        mock_out = np.zeros((1, 3, 256 * 2, 256 * 2), dtype=np.float32)
+        cache = _fake_cache(_onnx_session(mock_out))
+        warn_list: list[str] = []
+        with patch("lce.models.registry.ensure", side_effect=_ensure):
+            with pytest.warns(RuntimeWarning, match="hat-stock-lora-x2.*hat-sentinel-x2"):
+                upscale.run(_img(), cache, scale=2, warn=warn_list)
+        assert len(warn_list) == 1
+        assert "hat-stock-lora-x2" in warn_list[0] and "hat-sentinel-x2" in warn_list[0]
+
+    def test_2x_default_with_stock_weights_present_emits_no_warning(self):
+        # positive twin: the happy path (file present) never warns at all.
+        from lce.models import upscale
+
+        mock_out = np.zeros((1, 3, 256 * 2, 256 * 2), dtype=np.float32)
+        cache = _fake_cache(_onnx_session(mock_out))
+        warn_list: list[str] = []
+        with patch("lce.models.registry.ensure", return_value=Path("/fake/hat.onnx")):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")  # any warning here fails the test
+                upscale.run(_img(), cache, scale=2, warn=warn_list)
+        assert warn_list == []
+
+    def test_explicit_stock_variant_with_weights_missing_never_falls_back(self):
+        # positive twin for the no-fallback guarantee: unlike the default
+        # path above, an EXPLICIT variant="stock" request must still hard-
+        # fail -- the caller named a specific model and should get a loud,
+        # specific error, not an unrequested substitution.
         from lce.models import upscale
 
         def _ensure(model_id: str):
@@ -151,7 +191,7 @@ class TestUpscale:
 
         with patch("lce.models.registry.ensure", side_effect=_ensure):
             with pytest.raises(FileNotFoundError, match="hat-stock-lora-x2"):
-                upscale.run(_img(), MagicMock(), scale=2)
+                upscale.run(_img(), MagicMock(), scale=2, variant="stock")
 
     def test_stock_variant_selects_hat_stock_lora_x2_model(self):
         from lce.models import upscale

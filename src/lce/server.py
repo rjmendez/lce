@@ -286,8 +286,12 @@ class LceHandler:
         if name == "upscale":
             scale = int(args.get("scale", 2))
             variant = args.get("variant")
-            out = upscale.run(img, self._cache, scale=scale, variant=variant)
-            return _image_result(out, out_path, meta)
+            warn: list[str] = []
+            out = upscale.run(img, self._cache, scale=scale, variant=variant, warn=warn)
+            res = _image_result(out, out_path, meta)
+            if warn:
+                res["content"].insert(0, {"type": "text", "text": warn[0]})
+            return res
 
         if name == "segment":
             points = args.get("points")
