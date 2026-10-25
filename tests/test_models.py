@@ -104,7 +104,25 @@ class TestUpscale:
             upscale.run(_img(), cache, scale=4)
         assert calls == ["hat-sentinel-x4"]
 
-    def test_2x_selects_hat_sentinel_x2_model(self):
+    def test_explicit_sentinel_variant_at_2x_selects_hat_sentinel_x2_model(self):
+        # the explicit path: variant="sentinel" always means the satellite
+        # model, independent of what the scale=2 default currently is.
+        from lce.models import upscale
+        calls = []
+
+        def _ensure(model_id: str):
+            calls.append(model_id)
+            return Path("/fake/hat.onnx")
+
+        mock_out = np.zeros((1, 3, 256 * 2, 256 * 2), dtype=np.float32)
+        cache = _fake_cache(_onnx_session(mock_out))
+        with patch("lce.models.registry.ensure", side_effect=_ensure):
+            upscale.run(_img(), cache, scale=2, variant="sentinel")
+        assert calls == ["hat-sentinel-x2"]
+
+    def test_2x_default_selects_hat_stock_lora_x2_model(self):
+        # positive twin: the new scale=2 default (variant=None) is the
+        # stock LoRA fine-tune, not the satellite model above.
         from lce.models import upscale
         calls = []
 
@@ -116,7 +134,24 @@ class TestUpscale:
         cache = _fake_cache(_onnx_session(mock_out))
         with patch("lce.models.registry.ensure", side_effect=_ensure):
             upscale.run(_img(), cache, scale=2)
-        assert calls == ["hat-sentinel-x2"]
+        assert calls == ["hat-stock-lora-x2"]
+
+    def test_2x_default_with_stock_weights_missing_raises_not_a_fallback(self):
+        # no silent fallback to the sentinel model when the stock weights
+        # are absent: registry.ensure()'s FileNotFoundError propagates as-is.
+        from lce.models import upscale
+
+        def _ensure(model_id: str):
+            if model_id == "hat-stock-lora-x2":
+                raise FileNotFoundError(
+                    "'hat-stock-lora-x2' is a local-only model with no public "
+                    "download; expected it at /fake/missing/stock.onnx"
+                )
+            raise AssertionError(f"unexpected model id {model_id!r}")
+
+        with patch("lce.models.registry.ensure", side_effect=_ensure):
+            with pytest.raises(FileNotFoundError, match="hat-stock-lora-x2"):
+                upscale.run(_img(), MagicMock(), scale=2)
 
     def test_stock_variant_selects_hat_stock_lora_x2_model(self):
         from lce.models import upscale
@@ -132,11 +167,22 @@ class TestUpscale:
             upscale.run(_img(), cache, scale=2, variant="stock")
         assert calls == ["hat-stock-lora-x2"]
 
-    def test_stock_variant_at_scale_4_raises_value_error(self):
-        # the stock fine-tune is scale=2 only
+    def test_stock_variant_at_scale_4_selects_hat_stock_x4_model(self):
+        # "stock" at scale=4 is the plain zero-shot official checkpoint (no
+        # LoRA, no gated fine-tune) -- a distinct model id from "stock" at
+        # scale=2, and not the scale=4 default (see test_4x_selects_hat_sentinel_x4_model).
         from lce.models import upscale
-        with pytest.raises(ValueError, match="no 'stock' upscale model for scale=4"):
-            upscale.run(_img(), MagicMock(), scale=4, variant="stock")
+        calls = []
+
+        def _ensure(model_id: str):
+            calls.append(model_id)
+            return Path("/fake/hat.onnx")
+
+        mock_out = np.zeros((1, 3, 256 * 4, 256 * 4), dtype=np.float32)
+        cache = _fake_cache(_onnx_session(mock_out))
+        with patch("lce.models.registry.ensure", side_effect=_ensure):
+            upscale.run(_img(), cache, scale=4, variant="stock")
+        assert calls == ["hat-stock-x4"]
 
     def test_unknown_variant_raises_value_error(self):
         from lce.models import upscale
@@ -278,6 +324,46 @@ class TestSegment:
         assert set(np.unique(result)).issubset({0.0, 1.0})
         assert result[0, 0, 0] == 1.0       # top half is foreground
         assert result[0, H - 1, 0] == 0.0   # bottom half is background
+
+    def _run_with_prompt(self, points=None, labels=None, H=64, W=64):
+        from lce.models import segment
+        input_img = _img(3, H, W)
+        enc_out = np.zeros((1, 256, 64, 64), dtype=np.float32)
+        mask_out = np.ones((1, 1, H, W), dtype=np.float32)
+        enc_sess = _onnx_session(enc_out)
+        dec_sess = _onnx_session(mask_out)
+        cache = _fake_cache(enc_sess, dec_sess)
+        with patch(
+            "lce.models.registry.ensure",
+            side_effect=[Path("/fake/enc.onnx"), Path("/fake/dec.onnx")],
+        ):
+            segment.run(input_img, cache, points=points, labels=labels)
+        return dec_sess.feeds[0]
+
+    def test_custom_point_is_scaled_into_the_resized_pixel_frame(self):
+        # H=W=64 -> long side 1024 means k=16, so a center point (0.5,0.5)
+        # lands at exactly (512, 512) in the resized pixel frame, and with
+        # no labels given it defaults to foreground (1.0).
+        feed = self._run_with_prompt(points=[(0.5, 0.5)])
+        np.testing.assert_array_equal(feed["point_coords"], [[[512.0, 512.0]]])
+        np.testing.assert_array_equal(feed["point_labels"], [[1.0]])
+
+    def test_custom_labels_are_passed_through_exactly(self):
+        feed = self._run_with_prompt(points=[(0.1, 0.2), (0.8, 0.9)], labels=[1, 0])
+        np.testing.assert_allclose(
+            feed["point_coords"], [[[0.1 * 1024, 0.2 * 1024], [0.8 * 1024, 0.9 * 1024]]]
+        )
+        np.testing.assert_array_equal(feed["point_labels"], [[1.0, 0.0]])
+
+    def test_mismatched_labels_length_raises_value_error(self):
+        from lce.models import segment
+        with pytest.raises(ValueError, match="same length as points"):
+            segment.run(_img(), MagicMock(), points=[(0.5, 0.5)], labels=[1, 0])
+
+    def test_matching_labels_length_does_not_raise(self):
+        # positive twin for the mismatched-length test above
+        feed = self._run_with_prompt(points=[(0.5, 0.5), (0.1, 0.1)], labels=[1, 0])
+        assert feed["point_coords"].shape == (1, 2, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -467,3 +553,26 @@ class TestFace:
             result = face.run(_img(), cache)
         assert float(result.min()) >= 0.0
         assert float(result.max()) <= 1.0
+
+    def test_non_square_image_raises_value_error(self):
+        # 2:1 aspect ratio (e.g. 64x128) looks nothing like a cropped face.
+        from lce.models import face
+        wide_img = _img(3, 64, 128)
+        with patch("lce.models.registry.model_path", return_value=Path("/fake/gfpgan.onnx")):
+            with pytest.raises(ValueError, match="Image does not look like a cropped face"):
+                face.run(wide_img, MagicMock())
+
+    def test_near_square_image_passes_guard_and_reaches_inference(self):
+        # Positive twin: a near-square, face-crop-shaped image (ratio 1.25,
+        # under the 1.4 threshold) must NOT raise, and must actually reach
+        # the model (a recording stub that returns a fixed array, not one
+        # that raises on call).
+        from lce.models import face
+        H, W = 48, 60   # 60/48 = 1.25 < 1.4
+        mock_out = np.zeros((1, 3, 512, 512), dtype=np.float32)
+        sess = _onnx_session(mock_out)
+        cache = _fake_cache(sess)
+        with patch("lce.models.registry.model_path", return_value=Path("/fake/gfpgan.onnx")):
+            result = face.run(_img(3, H, W), cache)
+        assert len(sess.feeds) == 1          # inference was actually called
+        assert result.shape == (3, H, W)

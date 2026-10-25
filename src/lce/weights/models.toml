@@ -39,6 +39,17 @@ description = "HAT-S 2x super-resolution, LoRA fine-tuned (rank 8) on real stock
 optional    = true
 
 [[model]]
+id          = "hat-stock-x4"
+capability  = "upscale"
+local_path  = "D:\\bio-cache\\sr-train\\hat_s_zeroshot_x4.onnx"
+sha256      = "3cce309150969cd86239ae19a36451e206496318f8b5357dfa87cc8417e9fe7d"
+size_bytes  = 117268588
+format      = "onnx"
+license     = "Apache-2.0 (official XPixelGroup/HAT checkpoint, re-exported to ONNX unmodified -- no fine-tuning applied)"
+description = "HAT-S 4x super-resolution, the official pretrained checkpoint with NO fine-tuning (zero-shot) -- unlike hat-stock-lora-x2, this is not a LoRA adapter on top of anything. A LoRA fine-tune attempt at 4x (rank 8, lr 1.5e-4, 1500 steps) failed its quality gate -- best checkpoint was step 0, no improvement over this zero-shot baseline -- so this is the plain official weights, not a fine-tune. Reproduced-in-training-harness numbers vs. bicubic on held-out synthetically-degraded crops: PSNR +1.31dB (45.77 vs 44.46), better LPIPS/DISTS, sharper deployment Laplacian-variance (2.89 vs 1.02). NOT measured head-to-head against hat-sentinel-x4 on real photos (unlike the x2 stock/sentinel comparison, which was) -- registered as an explicit variant, not the scale=4 default, until that comparison exists. Local-only: not publicly hosted as ONNX, no download fallback. Dynamic H/W (verified against PyTorch to <1e-5 abs diff on two different tile sizes)."
+optional    = true
+
+[[model]]
 id          = "nafnet-fp32"
 capability  = "sharpen"
 url         = "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx"

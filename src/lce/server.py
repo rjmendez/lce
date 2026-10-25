@@ -7,6 +7,7 @@ LightCraft connects here as a client and discovers tools:
   upscale   — 2x or 4x super-resolution
   segment   — grid-prompted MobileSAM mask
   triage    — BRISQUE quality / resolution routing
+  restore_face — GFPGAN v1.4 face restoration (manual, confirm_cropped required)
   health    — server status + loaded model list
 
 Run:  python -m lce.server  [--transport http --host 127.0.0.1 --port 8091 --allow-dir DIR]
@@ -85,11 +86,14 @@ def _tools() -> list[dict]:
                     "variant": {
                         "type": "string",
                         "enum": ["sentinel", "stock"],
-                        "default": "sentinel",
                         "description": (
-                            "sentinel (default): Sentinel-2 satellite-imagery HAT. "
-                            "stock: HAT-S + LoRA fine-tuned on real stock nature photos, "
-                            "scale=2 only, local-only (not available unless this machine has it)."
+                            "Leave unset to use the measured-best model per scale: the local-only "
+                            "HAT-S + LoRA stock-photo fine-tune at scale=2, the Sentinel-2 "
+                            "satellite-imagery HAT at scale=4 (no validated real-photo 4x model "
+                            "exists yet). sentinel: force the Sentinel-2 satellite-imagery HAT "
+                            "explicitly, at either scale. stock: force the HAT-S + LoRA fine-tune "
+                            "on real stock nature photos explicitly, scale=2 only, local-only "
+                            "(not available unless this machine has it)."
                         ),
                     },
                     "output_path": {"type": "string", "description": "Write the full-quality result here (optional)"},
@@ -98,13 +102,39 @@ def _tools() -> list[dict]:
         },
         {
             "name": "segment",
-            "description": "Grid-prompted MobileSAM mask (not a subject detector). Returns the mask as a base64 PNG (255 = selected).",
+            "description": (
+                "MobileSAM mask, prompted with points you pass (not a subject "
+                "detector on its own). Without `points`, falls back to a "
+                "uniform 3x3 grid of positive points over the whole image, "
+                "which selects whatever region the grid agrees on, not "
+                "necessarily the subject -- pass `points` near the actual "
+                "subject for a real subject mask. Returns the mask as a base64 "
+                "PNG (255 = selected)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "image_b64": {"type": "string"},
                     "path": {"type": "string"},
                     "output_path": {"type": "string", "description": "Write the mask PNG here (optional)"},
+                    "points": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                        "description": (
+                            "[[x, y], ...] prompt points as normalised [0,1] "
+                            "fractions of the image's width/height. Omit for "
+                            "the default 3x3-grid prompt."
+                        ),
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {"type": "integer", "enum": [0, 1]},
+                        "description": (
+                            "1 (foreground) or 0 (background) per entry in "
+                            "`points`, same length. Defaults to all-foreground "
+                            "if omitted. Ignored if `points` is omitted."
+                        ),
+                    },
                 },
             },
         },
@@ -129,6 +159,31 @@ def _tools() -> list[dict]:
                     "scale": {"type": "integer", "enum": [2, 4], "default": 2,
                               "description": "Upscale factor when the route upscales"},
                 },
+            },
+        },
+        {
+            "name": "restore_face",
+            "description": (
+                "GFPGAN v1.4 face restoration. Input MUST already be cropped to a "
+                "single face — there is no face detection step; running this on a "
+                "full photo will distort it. Requires `lce-weights get gfpgan-v14`."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "image_b64": {"type": "string"},
+                    "path": {"type": "string"},
+                    "output_path": {"type": "string", "description": "Write the full-quality result here (optional)"},
+                    "confirm_cropped": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be set true to confirm the image is already cropped to "
+                            "a single face. There is no default: passing this without "
+                            "thinking about it is the point."
+                        ),
+                    },
+                },
+                "required": ["confirm_cropped"],
             },
         },
     ]
@@ -193,7 +248,7 @@ class LceHandler:
 
     # ------------------------------------------------------------------
     def _dispatch(self, name: str, args: dict) -> dict:
-        from lce.models import enhance, segment, sharpen, triage, upscale
+        from lce.models import enhance, face, segment, sharpen, triage, upscale
 
         if name == "health":
             from lce.engine import degraded_counts
@@ -230,13 +285,15 @@ class LceHandler:
 
         if name == "upscale":
             scale = int(args.get("scale", 2))
-            variant = args.get("variant", "sentinel")
-            variant = None if variant == "sentinel" else variant
+            variant = args.get("variant")
             out = upscale.run(img, self._cache, scale=scale, variant=variant)
             return _image_result(out, out_path, meta)
 
         if name == "segment":
-            mask = segment.run(img, self._cache)
+            points = args.get("points")
+            points = [tuple(p) for p in points] if points is not None else None
+            labels = args.get("labels")
+            mask = segment.run(img, self._cache, points=points, labels=labels)
             return _mask_result(mask, out_path)
 
         if name == "enhance":
@@ -246,6 +303,15 @@ class LceHandler:
             res = _image_result(out, out_path, meta)
             res["content"].insert(0, {"type": "text", "text": json.dumps({"route": route})})
             return res
+
+        if name == "restore_face":
+            if not args.get("confirm_cropped"):
+                raise ValueError(
+                    "Set confirm_cropped=true to confirm the image is already "
+                    "cropped to a single face."
+                )
+            out = face.run(img, self._cache)
+            return _image_result(out, out_path, meta)
 
         raise ValueError(f"Unknown tool: {name}")
 

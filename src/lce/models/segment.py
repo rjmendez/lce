@@ -28,16 +28,30 @@ def _resize_hwc255(img_chw: np.ndarray, new_h: int, new_w: int) -> np.ndarray:
     return np.asarray(pil, dtype=np.float32)
 
 
-def run(img_chw_f32: np.ndarray, cache) -> np.ndarray:
+def run(
+    img_chw_f32: np.ndarray,
+    cache,
+    points: list[tuple[float, float]] | None = None,
+    labels: list[int] | None = None,
+) -> np.ndarray:
     """
     Returns a mask [1,H,W] float32 (1 = selected, 0 = not) at the input size.
 
     The image is resized so its long side is 1024 (aspect preserved) and fed
     to the encoder as HWC float 0-255; the exported encoder does the SAM
-    normalisation and padding itself. A uniform 3×3 grid of positive points
-    over the image is the prompt, and the single-mask decoder returns one
-    mask. This is a generic prompt: it selects whatever region the grid points
-    agree on, not necessarily "the subject".
+    normalisation and padding itself. The single-mask decoder returns one
+    mask for whatever points are passed as the prompt.
+
+    points: (x, y) in normalised [0,1] fractions of the ORIGINAL image's
+    width/height (not the resized/pixel frame -- this function handles that
+    conversion). None (default) uses a uniform 3x3 grid of positive points
+    over the whole image -- a generic prompt that selects whatever region the
+    grid points agree on, not necessarily "the subject". Passing points lets a
+    caller who knows roughly where the subject is get an actual subject mask
+    instead.
+    labels: 1 (foreground) or 0 (background) per point, same length as
+    points; defaults to all-foreground (1) if omitted. Ignored if points is
+    None (the default grid is always all-foreground, unchanged from before).
     """
     from lce.models.registry import ensure
 
@@ -49,11 +63,22 @@ def run(img_chw_f32: np.ndarray, cache) -> np.ndarray:
     resized = _resize_hwc255(img_chw_f32, new_h, new_w)
     embeddings = _infer(enc_sess, {input_name(enc_sess): resized})[0]  # [1,256,64,64]
 
-    # Prompt points are in the resized-image pixel frame.
-    pts = [[(gx + 0.5) / 3.0 * new_w, (gy + 0.5) / 3.0 * new_h]
-           for gy in range(3) for gx in range(3)]
-    point_coords = np.array(pts, dtype=np.float32).reshape(1, 9, 2)
-    point_labels = np.ones((1, 9), dtype=np.float32)
+    if points is None:
+        # Default prompt, in the resized-image pixel frame.
+        pts = [[(gx + 0.5) / 3.0 * new_w, (gy + 0.5) / 3.0 * new_h]
+               for gy in range(3) for gx in range(3)]
+        point_labels = np.ones((1, 9), dtype=np.float32)
+    else:
+        if labels is not None and len(labels) != len(points):
+            raise ValueError(
+                f"labels must be the same length as points (got {len(labels)} "
+                f"labels for {len(points)} points)"
+            )
+        pts = [[x * new_w, y * new_h] for x, y in points]
+        point_labels = np.array(
+            [labels if labels is not None else [1] * len(points)], dtype=np.float32
+        )
+    point_coords = np.array(pts, dtype=np.float32).reshape(1, len(pts), 2)
 
     dec_sess = cache.load(ensure(_DECODER_ID))
     outputs = _infer(dec_sess, {

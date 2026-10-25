@@ -170,8 +170,8 @@ class TestShippedRegistry:
     def test_every_entry_pins_digest_size_and_https_url_or_local_path(self):
         entries = registry.available()
         assert [e["id"] for e in entries] == [
-            "hat-sentinel-x4", "hat-sentinel-x2", "hat-stock-lora-x2", "nafnet-fp32",
-            "mobilesam-encoder", "mobilesam-decoder", "gfpgan-v14"]
+            "hat-sentinel-x4", "hat-sentinel-x2", "hat-stock-lora-x2", "hat-stock-x4",
+            "nafnet-fp32", "mobilesam-encoder", "mobilesam-decoder", "gfpgan-v14"]
         for e in entries:
             assert re.fullmatch(r"[0-9a-f]{64}", e["sha256"]), e["id"]
             assert isinstance(e["size_bytes"], int) and e["size_bytes"] > 0, e["id"]
@@ -180,10 +180,10 @@ class TestShippedRegistry:
             else:
                 assert e["url"].startswith("https://huggingface.co/"), e["id"]
 
-    def test_hat_stock_lora_x2_is_the_only_local_only_entry(self):
+    def test_exactly_the_two_stock_entries_are_local_only(self):
         entries = registry.available()
         local_only = [e["id"] for e in entries if "local_path" in e]
-        assert local_only == ["hat-stock-lora-x2"]
+        assert local_only == ["hat-stock-lora-x2", "hat-stock-x4"]
 
     def test_every_model_id_used_by_code_is_registered(self):
         from lce.models import face, segment, sharpen, upscale
