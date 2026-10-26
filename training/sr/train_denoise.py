@@ -47,6 +47,7 @@ import torch.nn.functional as F
 import rawpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hat"))
 from model import TinyRestore1x, count_params, EMA  # noqa: E402
 from train import pick_device  # noqa: E402
 from patch_pair_dataset import make_pair_loader  # noqa: E402

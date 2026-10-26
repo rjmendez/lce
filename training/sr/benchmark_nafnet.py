@@ -17,6 +17,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "nafnet_vendor"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hat"))
 from train import pick_device  # noqa: E402
 from validate_real import psnr, perceptual_scores  # noqa: E402
 from precompute_denoise_patches import PATCH_SIZE, _decode  # noqa: E402

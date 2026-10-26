@@ -22,6 +22,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hat"))
 from train import PATCH_SIZE  # noqa: E402
 from degrade import random_hr_crop  # noqa: E402
 

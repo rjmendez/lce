@@ -22,6 +22,7 @@ import numpy as np
 import rawpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hat"))
 from degrade import random_hr_crop  # noqa: E402
 
 PATCH_SIZE = 256

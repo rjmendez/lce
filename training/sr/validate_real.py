@@ -20,6 +20,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hat"))
 from model import TinySR2x, count_params  # noqa: E402
 from degrade import degrade_hr_to_lr, random_hr_crop  # noqa: E402
 from train import pick_device, PATCH_SIZE  # noqa: E402
