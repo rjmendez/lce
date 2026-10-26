@@ -14,6 +14,10 @@ def run(img_chw_f32: np.ndarray, cache=None) -> str:
 
     *cache* is accepted for API consistency but unused (BRISQUE needs no model
     file). Requires the optional ``triage`` extra (torch + piq).
+
+    Note: the resolution check below takes priority over the score-based
+    route, overriding it to 'upscale' even when the score alone would have
+    said 'skip'. See ``enhance.run()``'s docstring for the rationale.
     """
     import torch
     from piq import brisque
