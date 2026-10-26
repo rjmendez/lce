@@ -18,7 +18,7 @@ def main() -> None:
         print(f"Weights dir: {weights_dir()}\n")
         for m in available():
             local = model_path(m["id"])
-            status = "✓" if local else " "
+            status = "x" if local else " "
             print(f"  [{status}] {m['id']:30s}  {m['license']:15s}  {m.get('size_bytes', 0) // 1_000_000:>4} MB  {m['description']}")
     elif args.cmd == "download":
         for m in available():
