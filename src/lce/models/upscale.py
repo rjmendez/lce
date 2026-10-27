@@ -35,6 +35,23 @@ _DEFAULT_TILE = 256   # used only when the model has dynamic spatial dims
 _DEFAULT_OVERLAP = 16
 
 
+def recommended_scale(w: int, h: int, max_mp: float = 100.0) -> int | None:
+    """The largest registered scale (see _MODEL_IDS) whose output -- w*scale
+    by h*scale -- stays at or under *max_mp* megapixels; None if even the
+    smallest registered scale would exceed it.
+
+    A platform's megapixel ceiling (e.g. Adobe Stock's 100MP) is easy to
+    blow past: scale multiplies each linear dimension, so scale=4 multiplies
+    the pixel COUNT by 16x, not 4x. This picks the scale for you instead of
+    assuming the largest one is always safe.
+    """
+    mp = w * h / 1e6
+    for scale in sorted(_MODEL_IDS, reverse=True):
+        if mp * (scale ** 2) <= max_mp:
+            return scale
+    return None
+
+
 def _infer(session, feed: dict) -> np.ndarray:
     """Unified inference for ONNX InferenceSession or OpenVINO compiled model."""
     try:

@@ -230,6 +230,46 @@ class TestUpscale:
             upscale.run(_img(), MagicMock(), scale=2, variant="nope")
 
 
+class TestRecommendedScale:
+    """recommended_scale: scale multiplies the pixel COUNT by scale**2, not
+    scale -- the boundary math has to reflect that, not a linear check."""
+
+    def test_small_image_at_the_scale4_boundary_gets_scale_4(self):
+        from lce.models.upscale import recommended_scale
+        # 2500x2500 = 6.25MP; 6.25*16 = 100 <= 100 -> still fits at scale=4
+        assert recommended_scale(2500, 2500, max_mp=100.0) == 4
+
+    def test_just_over_the_scale4_boundary_gets_scale_2(self):
+        from lce.models.upscale import recommended_scale
+        # 2500x2501 = 6.2525MP; *16 = 100.04 > 100 -> drops to scale=2
+        assert recommended_scale(2500, 2501, max_mp=100.0) == 2
+
+    def test_tiny_image_gets_scale_4(self):
+        from lce.models.upscale import recommended_scale
+        assert recommended_scale(1000, 1000, max_mp=100.0) == 4
+
+    def test_medium_image_at_the_scale2_boundary_gets_scale_2(self):
+        from lce.models.upscale import recommended_scale
+        # 5000x5000 = 25MP; 25*4 = 100 <= 100 -> still fits at scale=2
+        assert recommended_scale(5000, 5000, max_mp=100.0) == 2
+
+    def test_just_over_the_scale2_boundary_gets_none(self):
+        from lce.models.upscale import recommended_scale
+        # 5000x5001 = 25.005MP; *4 = 100.02 > 100 -> too large for any scale
+        assert recommended_scale(5000, 5001, max_mp=100.0) is None
+
+    def test_large_image_gets_none(self):
+        from lce.models.upscale import recommended_scale
+        assert recommended_scale(8000, 6000, max_mp=100.0) is None
+
+    def test_a_tighter_ceiling_changes_the_answer_for_the_same_image(self):
+        """Positive twin showing max_mp is actually read, not hardcoded: the
+        same 1000x1000 image that got scale=4 against a 100MP ceiling must
+        drop to scale=2 against a 4MP ceiling (1*16=16 > 4, 1*4=4 <= 4)."""
+        from lce.models.upscale import recommended_scale
+        assert recommended_scale(1000, 1000, max_mp=4.0) == 2
+
+
 # ---------------------------------------------------------------------------
 # sharpen
 # ---------------------------------------------------------------------------
